@@ -1,0 +1,68 @@
+using System;
+using Game.Board;
+
+// 象棋 AI 的无头用例：AI 迁到 Game.Board.BoardSearch 之后，
+// 该找到的棋找得到、搜完局面不脏、评估口径不翻错。
+//
+// 残局摆法：红帅在 (4,9)（九宫内），黑车在 (4,5)，黑将在 (0,0)，黑方走棋。
+// 黑车沿 x=4 一路推到 (4,9) 就是一步吃帅；红方此时还有 (3,9)/(5,9) 两个
+// 应将着法，所以"不吃帅"的其他着法都只是普通分——吃帅是唯一的胜着。
+class Program {
+    static void Check(bool cond, string message) {
+        if (!cond) {
+            Console.WriteLine("FAIL: " + message);
+            throw new Exception(message);
+        }
+    }
+
+    static XqGame Setup() {
+        XqGame g = new XqGame();
+        g.board = new int[90];
+        g.Put(4, 9, 1);    // 红帅
+        g.Put(4, 5, 12);   // 黑车（正在将军）
+        g.Put(0, 0, 8);    // 黑将
+        return g;
+    }
+
+    static void Main() {
+        XqGame g = Setup();
+        XqSearch s = new XqSearch(g, false);   // 黑方走
+        int[] before = new int[90];
+        for (int i = 0; i < 90; i = i + 1) { before[i] = g.board[i]; }
+
+        BoardSearch ai = new BoardSearch(4).WithTimeLimit(2000);
+        int best = ai.BestMove(s);
+        Check(best >= 0, "search must return a move");
+
+        // 搜完局面必须原样：搜索会落子也会撤销，收尾不能留半步。
+        bool same = true;
+        for (int i = 0; i < 90; i = i + 1) {
+            if (g.board[i] != before[i]) { same = false; }
+        }
+        Check(same, "search must restore the board");
+
+        // 最佳着法必须吃红帅（目标方格原本是红帅），而且是必胜分。
+        int to = best % 90;
+        Check(g.board[to] == 1, "best move must capture the red general");
+        Check(ai.LastScore >= BoardSearch.Mate() - 8, "capture must score as a win");
+
+        // 评估口径：Evaluate() 是**当前行棋方**视角，优势为正。
+        XqSearch black = new XqSearch(g, false);
+        XqSearch red = new XqSearch(g, true);
+        Check(black.Evaluate() > 0, "black is materially ahead");
+        Check(red.Evaluate() < 0, "red view mirrors the black view");
+
+        // 终局口径：红帅被吃之后，轮到红方时红方已无将帅 → 终局且红方判负；
+        // 撤销一步必须把局面还原回去。
+        XqGame done = Setup();
+        XqSearch s2 = new XqSearch(done, false);
+        s2.ApplyMove(49 * 90 + 85);   // 黑车 (4,5) → (4,9) 吃红帅
+        Check(s2.IsTerminal(), "capturing the general ends the game");
+        Check(s2.Evaluate() < 0, "the side to move after the capture is lost");
+        s2.UndoMove();
+        Check(!s2.IsTerminal(), "undo restores the position");
+        Check(done.board[85] == 1, "undo puts the captured general back");
+
+        Console.WriteLine("ai_tactic OK");
+    }
+}

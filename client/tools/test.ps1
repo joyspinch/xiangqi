@@ -1,8 +1,11 @@
-# 中国象棋 无头冒烟：编译后在 UiDriver 下跑几帧再退出。
+# 中国象棋 测试：AI 无头断言 + GUI 无头冒烟。
 #
-# 验证三件事：exe 编译得过、启动后帧循环不崩、demo 标记能让对局场景跑起来
-# （资源内嵌与查找路径通不通）。GUI 游戏没有断言式用例套件，这里的判据是
-# "进程按脚本正常退出 + UiDriver 会话收尾"。
+# 验证四件事：
+#   1. exe 编译得过、启动后帧循环不崩、demo 标记能让对局场景跑起来
+#      （资源内嵌与查找路径通不通）。GUI 游戏的判据是"进程按脚本正常退出
+#      + UiDriver 会话收尾"。
+#   2. AI 无头用例：搜索迁到 Game.Board.BoardSearch 之后，该找的杀法找得到、
+#      搜完局面不脏、评估口径不翻错（GUI 之外唯一能断言 AI 行为的地方）。
 param(
     [string]$Compiler = $env:ZANC,
     [string]$PackageProject = ''
@@ -19,6 +22,25 @@ $out = Join-Path $repo 'build/xiangqi'
 & (Join-Path $PSScriptRoot 'build.ps1') -Compiler $Compiler -PackageProject $PackageProject -Output $out
 $exe = Join-Path $out 'Xiangqi.exe'
 if (-not (Test-Path $exe)) { throw "缺少可执行文件：$exe" }
+
+# --- AI 无头断言用例 ---
+# 源码要**排除 main.zan**（它带 Main()，用例自己的 Main 才是入口）；
+# 其余游戏源码全部带上——用例要直接摆棋盘、调用规则与搜索。
+$caseSources = @(Get-ChildItem (Join-Path $project 'src') -Recurse -File -Filter *.zan |
+    Where-Object { $_.Name -ne 'main.zan' } |
+    Sort-Object FullName | ForEach-Object { $_.FullName })
+foreach ($case in @('ai_tactic.zan')) {
+    $stem = [IO.Path]::GetFileNameWithoutExtension($case)
+    $caseExe = Join-Path $out "$stem.exe"
+    & $Compiler (@((Join-Path $project "tests/$case")) + $caseSources +
+        @('--auto-stdlib', '--package-project', $PackageProject, '-o', $caseExe))
+    if ($LASTEXITCODE -ne 0) { throw "无头用例编译失败：$case (zanc=$LASTEXITCODE)" }
+    $caseOut = & $caseExe 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "无头用例失败：$case`n$caseOut" }
+    if ($caseOut -notmatch "$stem OK") { throw "无头用例输出不对：$case`n$caseOut" }
+    Write-Host "${stem}_OK"
+}
+
 # demo 标记：进对局自弈场景（比停在主菜单多跑一层玩法渲染）
 [IO.File]::WriteAllText((Join-Path $out 'xiangqi_demo.txt'), 'demo', [Text.UTF8Encoding]::new($false))
 # UiDriver 脚本：等几帧 → dump → 退出（无头，不弹窗口）

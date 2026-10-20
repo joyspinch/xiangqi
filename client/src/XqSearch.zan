@@ -1,0 +1,109 @@
+using System;
+using System.Collections.Generic;
+using Game.Board;
+
+// 象棋搜索适配器：把 XqGame 的棋盘包成 Game.Board 的 ISearchGame，
+// 让包里那套 alpha-beta 直接可用（迭代加深 + 时间预算 + 走法排序）。
+//
+// 为什么不再自己写一份 negamax：
+//   - **没有时间预算**：旧实现按固定深度搜到底，手机上遇到中局就会卡帧
+//     （帧循环被搜索堵住，界面直接冻住）。
+//   - **搜的是伪合法着法**：旧实现用 GenMoves（含"将军后自己被将"的棋），
+//     会走出送将的废棋。
+//   - **没有走法排序旋钮**：吃子优先排序写死在搜索里，调不动。
+// 包里的 BoardSearch 三件事都给了：迭代加深（被打断也留着已完成那层的
+// 着法）、时间预算（掐表即收手，局面一定还原干净）、走法排序回调。
+//
+// 口径对齐两处：
+//   1. BoardSearch 的 Evaluate() 是**当前行棋方视角**（正数 = 我方占优），
+//      而 XqGame.Eval() 是黑方视角——适配器负责翻符号。
+//   2. 终局分要带**距胜层数**：包里对"无着可走"直接给 -Mate()，分不出
+//      "一步将死"和"四步将死"。象棋里"无着可走"就是被将死（没有闷杀规则），
+//      所以适配器把终局判定整个接管：自己判断无着可走、自己给带层数的分，
+//      搜索因此优先挑最快的杀法（旧实现是 `500000 + depth * 1000`）。
+public class XqSearch : ISearchGame {
+    XqGame g;
+    // 搜索里的"当前行棋方"：与对局的 redTurn 分开管——搜索会连续推进行棋方，
+    // 撤销时必须原样退回，不能把对局的回合状态搅乱。
+    bool sideRed;
+    // 从搜索根算起的层数：终局分靠它区分快杀与慢杀。
+    int plies;
+    // 着法缓存：IsTerminal() 与搜索本身都要"当前行棋方的合法着法"，
+    // 算一次就够（合法着法是搜索里最贵的一步，不能每个节点算两遍）。
+    List<int> cachedMoves;
+    bool cacheValid;
+    // 每层记一步（着法 + 被吃的子），撤销时按栈回退。
+    List<int> undoMoves;
+    List<int> undoCaps;
+
+    public XqSearch(XqGame g, bool sideRed) {
+        this.g = g;
+        this.sideRed = sideRed;
+        this.plies = 0;
+        this.cachedMoves = new List<int>();
+        this.cacheValid = false;
+        this.undoMoves = new List<int>();
+        this.undoCaps = new List<int>();
+    }
+
+    // 当前行棋方的全部合法着法（含飞将过滤）。
+    public List<int> GenerateMoves() {
+        if (!this.cacheValid) {
+            this.cachedMoves = this.g.LegalMoves(this.sideRed);
+            this.cacheValid = true;
+        }
+        return this.cachedMoves;
+    }
+
+    // 落子并推进行棋方。
+    public void ApplyMove(int move) {
+        int f = move / 90;
+        int t = move % 90;
+        this.undoMoves.Add(move);
+        this.undoCaps.Add(this.g.board[t]);
+        this.g.board[t] = this.g.board[f];
+        this.g.board[f] = 0;
+        this.sideRed = !this.sideRed;
+        this.plies = this.plies + 1;
+        this.cacheValid = false;
+    }
+
+    // 撤销上一步（与 ApplyMove 成对）。
+    public void UndoMove() {
+        int n = this.undoMoves.Count;
+        if (n == 0) { return; }
+        int move = this.undoMoves[n - 1];
+        int cap = this.undoCaps[n - 1];
+        this.undoMoves.RemoveAt(n - 1);
+        this.undoCaps.RemoveAt(n - 1);
+        int f = move / 90;
+        int t = move % 90;
+        this.g.board[f] = this.g.board[t];   // 棋子放回起点
+        this.g.board[t] = cap;                // 被吃的子放回目标格
+        this.sideRed = !this.sideRed;
+        this.plies = this.plies - 1;
+        this.cacheValid = false;
+    }
+
+    // 局面评估：从当前行棋方视角（正数 = 当前行棋方占优）。
+    public int Evaluate() {
+        bool mineGone = this.g.FindGeneral(this.sideRed) < 0;
+        bool oppGone = this.g.FindGeneral(!this.sideRed) < 0;
+        // 将被吃 = 输；对方将被吃 = 赢。终局分给足量级，negamax 换边取反；
+        // 层数越少分越高——快杀压过慢杀。
+        if (mineGone) { return -(BoardSearch.Mate() - this.plies); }
+        if (oppGone) { return BoardSearch.Mate() - this.plies; }
+        int e = this.g.Eval();   // 黑方视角
+        if (this.sideRed) { return -e; }
+        return e;
+    }
+
+    // 是否终局：任一方被将死——将被吃掉，或无着可走（象棋没有闷杀规则，
+    // 无着可走就是被将死）。这里把"无着可走"也收进来，终局分才能统一
+    // 走 Evaluate()，不落到包里那条固定 -Mate() 的分支上。
+    public bool IsTerminal() {
+        if (this.g.FindGeneral(this.sideRed) < 0) { return true; }
+        if (this.g.FindGeneral(!this.sideRed) < 0) { return true; }
+        return this.GenerateMoves().Count == 0;
+    }
+}

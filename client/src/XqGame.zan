@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Gui;
+using Game.Board;
 using Game.Kit;
 using Game.Foundation.Gui;
 
@@ -470,50 +471,7 @@ public class XqGame {
         return v;
     }
 
-    // 负极大值 Alpha-Beta 剪枝搜索。
-    int Search(bool blackToMove, int depth, int alpha, int beta) {
-        if (depth == 0) { return this.EvalFor(blackToMove); }
-        List<int> ms = this.GenMoves(!blackToMove);
-        // 吃子着法优先排序启发式。
-        int best = -9999999;
-        int n = ms.Count;
-        for (int oi = 0; oi < n; oi = oi + 1) {
-            int bi = oi;
-            int bv = this.MoveOrder(ms[oi]);
-            int oj = oi + 1;
-            while (oj < n) {
-                int vv = this.MoveOrder(ms[oj]);
-                if (vv > bv) { bv = vv; bi = oj; }
-                oj = oj + 1;
-            }
-            if (bi != oi) { int tmp = ms[oi]; ms[oi] = ms[bi]; ms[bi] = tmp; }
-            int m = ms[oi];
-            int f = m / 90; int t = m % 90;
-            int cap = this.board[t];
-            if (cap != 0) {
-                int ck = cap;
-                if (ck >= 8) { ck = ck - 7; }
-                if (ck == 1) { return 500000 + depth * 1000; }
-            }
-            this.board[t] = this.board[f];
-            this.board[f] = 0;
-            int sc = -this.Search(!blackToMove, depth - 1, -beta, -alpha);
-            this.board[f] = this.board[t];
-            this.board[t] = cap;
-            if (sc > best) { best = sc; }
-            if (best > alpha) { alpha = best; }
-            if (alpha >= beta) { return best; }
-        }
-        if (n == 0) { return -400000; }
-        return best;
-    }
-
-    int EvalFor(bool blackToMove) {
-        int e = this.Eval();
-        if (blackToMove) { return e; }
-        return -e;
-    }
-
+    // 走法排序启发式：吃子价值高的先搜（BoardSearch 的剪枝效率全靠它）。
     int MoveOrder(int m) {
         int t = m % 90;
         int cap = this.board[t];
@@ -521,25 +479,18 @@ public class XqGame {
         return XqGame.PieceVal(cap);
     }
 
+    // AI 落子：走 Game.Board 的 alpha-beta（迭代加深 + 时间预算 + 走法排序）。
+    // 时间预算是必须的——搜索跑在帧循环里，不掐表的话中局一算就把界面冻住。
     void AiMove(int now) {
         List<int> ms = this.LegalMoves(false);
         if (ms.Count == 0) { this.Win(1, now); return; }
-        int depth = 3;
-        int bestM = ms[0];
-        int bestV = -9999999;
-        for (int i = 0; i < ms.Count; i = i + 1) {
-            int m = ms[i];
-            int f = m / 90; int t = m % 90;
-            int cap = this.board[t];
-            this.board[t] = this.board[f];
-            this.board[f] = 0;
-            int sc = -this.Search(false, depth - 1, -9999999, 9999999);
-            this.board[f] = this.board[t];
-            this.board[t] = cap;
-            sc = sc + this.rng.Range(0, 5);
-            if (sc > bestV) { bestV = sc; bestM = m; }
-        }
-        this.Apply(bestM, now, false);
+        XqSearch s = new XqSearch(this, false);
+        BoardSearch ai = new BoardSearch(4)
+            .WithTimeLimit(250)
+            .WithMoveOrder((int m) => this.MoveOrder(m));
+        int best = ai.BestMove(s);
+        if (best < 0) { best = ms[0]; }
+        this.Apply(best, now, false);
     }
 
     void Apply(int m, int now, bool byPlayer) {
@@ -653,21 +604,12 @@ public class XqGame {
         }
         List<int> ms = this.LegalMoves(true);
         if (ms.Count == 0) { this.Win(2, now); return; }
-        int bestM = ms[0];
-        int bestV = -9999999;
-        for (int i = 0; i < ms.Count; i = i + 1) {
-            int m = ms[i];
-            int f = m / 90; int t = m % 90;
-            int cap = this.board[t];
-            this.board[t] = this.board[f];
-            this.board[f] = 0;
-            int sc = -this.Search(true, 1, -9999999, 9999999);
-            this.board[f] = this.board[t];
-            this.board[t] = cap;
-            sc = sc + this.rng.Range(0, 30);
-            if (sc > bestV) { bestV = sc; bestM = m; }
-        }
-        this.Apply(bestM, now, true);
+        // 演示用浅搜：一步棋够看出版面变化就行，别拖慢自弈节奏。
+        XqSearch s = new XqSearch(this, true);
+        BoardSearch ai = new BoardSearch(2).WithMoveOrder((int m) => this.MoveOrder(m));
+        int best = ai.BestMove(s);
+        if (best < 0) { best = ms[0]; }
+        this.Apply(best, now, true);
     }
 
     // ----- rendering -------------------------------------------------------
