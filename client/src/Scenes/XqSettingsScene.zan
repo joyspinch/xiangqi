@@ -1,0 +1,85 @@
+using System;
+using System.IO;
+using Gui;
+using Gui.Backend;
+using Game.Kit;
+using Game.Foundation.Gui;
+
+// 设置场景：整屏 HTML 面板（选项少、样式统一），改完即存盘。
+// 选项本身声明在共享基座 GameSettings 上，这里只做"按钮 -> 设置项"的接线。
+public class XqSettingsScene : HtmlScene {
+    XqGame g;
+    Control root;
+
+    XqSettingsScene(XqGame g) { this.g = g; }
+
+    override string HtmlFile() { return "assets/scenes/settings.html"; }
+
+    override void OnWire(HtmlHandlers handlers) {
+        handlers.Add("depth2", () => this.SetDepth(2));
+        handlers.Add("depth3", () => this.SetDepth(3));
+        handlers.Add("depth4", () => this.SetDepth(4));
+        handlers.Add("timeFast", () => this.SetTime(300));
+        handlers.Add("timeMid", () => this.SetTime(500));
+        handlers.Add("timeSlow", () => this.SetTime(2000));
+        handlers.Add("reset", () => this.Reset());
+        handlers.Add("back", () => this.router.Go("menu"));
+    }
+
+    void SetDepth(int value) {
+        XqSettings.SetAiDepth(value);
+        this.Mark();
+    }
+
+    void SetTime(int value) {
+        XqSettings.SetAiTimeMs(value);
+        this.Mark();
+    }
+
+    void Reset() {
+        XqSettings.ResetAll();
+        this.Mark();
+    }
+
+    // 当前档位高亮。
+    void Mark() {
+        Control root = this.root;
+        if (root == null) { return; }
+        XqSettingsScene.MarkOne(root, "d2", XqSettings.AiDepth() == 2);
+        XqSettingsScene.MarkOne(root, "d3", XqSettings.AiDepth() == 3);
+        XqSettingsScene.MarkOne(root, "d4", XqSettings.AiDepth() == 4);
+        XqSettingsScene.MarkOne(root, "t1", XqSettings.AiTimeMs() == 300);
+        XqSettingsScene.MarkOne(root, "t2", XqSettings.AiTimeMs() == 500);
+        XqSettingsScene.MarkOne(root, "t3", XqSettings.AiTimeMs() == 2000);
+    }
+
+    static void MarkOne(Control root, string id, bool on) {
+        Control c = root.Find(id);
+        // 基础档类 "opt" 常驻，"on" 是互斥的状态类：group 里带上
+        // "on" 才能在取消高亮时把它摘掉（SetClassIn 只清 group 内的类）。
+        if (c != null) { c.SetClassIn("optstate on", on ? "on" : ""); }
+    }
+
+    override void OnEnter(Control root) {
+        this.root = root;
+        this.Mark();
+        // 无头验证用：设置面板装载后把当前档位发出去。
+        if (UiDriver.Active()) {
+            UiDriver.SetProbe("settings.depth", Convert.ToString(XqSettings.AiDepth()));
+            UiDriver.SetProbe("settings.time", Convert.ToString(XqSettings.AiTimeMs()));
+            UiDriver.SetProbe("settings.open", "1");
+        }
+    }
+
+    override void Event(int kind, int key) {
+        if (kind == 4 && key == 27) { this.router.Go("menu"); }
+    }
+
+    override void Render(Canvas c, double alpha) {
+        GuiHost host = this.router.Host();
+        this.g.c = c;
+        this.g.SyncStage(host);
+        CDraw.Origin(0, host.ContentTop());
+        this.g.DrawMenuArt();
+    }
+}

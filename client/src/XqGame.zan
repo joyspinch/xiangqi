@@ -485,8 +485,8 @@ public class XqGame {
         List<int> ms = this.LegalMoves(false);
         if (ms.Count == 0) { this.Win(1, now); return; }
         XqSearch s = new XqSearch(this, false);
-        BoardSearch ai = new BoardSearch(4)
-            .WithTimeLimit(250)
+        BoardSearch ai = new BoardSearch(XqSettings.AiDepth())
+            .WithTimeLimit(XqSettings.AiTimeMs())
             .WithMoveOrder((int m) => this.MoveOrder(m));
         int best = ai.BestMove(s);
         if (best < 0) { best = ms[0]; }

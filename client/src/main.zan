@@ -14,7 +14,12 @@ public class XqApp {
         router.Register("menu", new XqMenuScene(g));
         router.Register("play", new XqPlayScene(g));
         router.Register("over", new XqOverScene(g));
-        // demo 标记（xiangqi_demo.txt）直接进对局自弈供截图/无头验证。
-        router.Run(g.demo ? "play" : "menu");
+        router.Register("settings", new XqSettingsScene(g));
+        // 设置读档一次（Game.Foundation.GameSettings 负责存盘与坏文件回退）。
+        XqSettings.Ensure();
+        // demo 标记（xiangqi_demo.txt）直接进对局自弈供截图/无头验证；
+        // 设置标记（xiangqi_settings.txt）直接进设置页，供设置面板的截图验收。
+        bool settingsDemo = File.Exists("xiangqi_settings.txt");
+        router.Run(settingsDemo ? "settings" : (g.demo ? "play" : "menu"));
     }
 }

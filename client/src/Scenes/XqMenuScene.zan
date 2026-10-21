@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Gui;
+using Gui.Backend;
 using Game.Kit;
 using Game.Foundation.Gui;
 
@@ -23,6 +24,7 @@ public class XqMenuScene : HtmlScene {
         handlers.Add("drill8", () => this.Pick(8));
         handlers.Add("drill9", () => this.Pick(9));
         handlers.Add("drill10", () => this.Pick(10));
+        handlers.Add("settings", () => this.router.Go("settings"));
     }
 
     void Pick(int m) {
@@ -36,6 +38,14 @@ public class XqMenuScene : HtmlScene {
             stats.SetText("段位 " + this.g.prof.Title() + " · " + this.g.prof.pts
                 + " 分 · 胜 " + this.g.prof.wins + " 负 " + this.g.prof.losses
                 + " · 残局通关 " + this.g.prof.drills);
+        }
+        // 无头验证用：把"设置"按钮的控件 id 发出去，UiDriver 才能点它
+        // （clickid @settings 走的是 probe "id.<name>" 通道）。
+        if (UiDriver.Active()) {
+            Control btn = root.Find("settingsBtn");
+            if (btn != null && btn is Button) {
+                UiDriver.SetProbe("id.settings", Convert.ToString(((Button)btn).wid));
+            }
         }
     }
 

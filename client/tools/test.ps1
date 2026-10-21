@@ -41,6 +41,27 @@ foreach ($case in @('ai_tactic.zan')) {
     Write-Host "${stem}_OK"
 }
 
+# --- 设置用例：跑两遍验证真的落盘 ---
+# 首跑：默认值 -> 写入 2/300；次跑（新进程）：读回必须是 2/300，
+# 否则说明设置只活在内存里，重启就丢——那就不叫"有设置"。
+$settingsCase = Join-Path $project 'tests/settings.zan'
+$settingsExe = Join-Path $out 'settings.exe'
+& $Compiler (@($settingsCase) + $caseSources +
+    @('--auto-stdlib', '--package-project', $PackageProject, '-o', $settingsExe))
+if ($LASTEXITCODE -ne 0) { throw "设置用例编译失败（zanc=$LASTEXITCODE）" }
+$settingsFile = Join-Path $out 'xiangqi_settings.json'
+if (Test-Path $settingsFile) { Remove-Item $settingsFile -Force }
+Push-Location $out
+try {
+    $first = & $settingsExe 2>&1 | Out-String
+    $second = & $settingsExe 2>&1 | Out-String
+} finally { Pop-Location }
+if ($first -notmatch 'settings OK') { throw "设置用例首跑输出不对：`n$first" }
+if ($second -notmatch 'settings OK') { throw "设置用例次跑输出不对：`n$second" }
+if ($first -notmatch 'depth=4,time=500') { throw "设置默认值不对：`n$first" }
+if ($second -notmatch 'depth=2,time=300') { throw "设置没有落盘（次跑仍读到默认值）：`n$second" }
+Write-Host 'settings_OK'
+
 # demo 标记：进对局自弈场景（比停在主菜单多跑一层玩法渲染）
 [IO.File]::WriteAllText((Join-Path $out 'xiangqi_demo.txt'), 'demo', [Text.UTF8Encoding]::new($false))
 # UiDriver 脚本：等几帧 → dump → 退出（无头，不弹窗口）

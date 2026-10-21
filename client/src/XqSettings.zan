@@ -1,0 +1,49 @@
+using System;
+using Game.Foundation;
+
+// 象棋设置：选项声明在共享基座 Game.Foundation.GameSettings 上。
+// 这里只声明"象棋有哪些选项"与便捷读法——存盘、校验、坏文件回退
+// 都在基座里，游戏侧不重复实现。
+public class XqSettings {
+    static GameSettings store;
+
+    static string Path() { return "xiangqi_settings.json"; }
+
+    static GameSettings Store() {
+        if (XqSettings.store == null) {
+            GameSettings s = new GameSettings().At(XqSettings.Path());
+            // AI 搜索深度：越深越强，也越吃 CPU。
+            s.AddInt("aiDepth", "AI 强度", 4, 1, 4, 1);
+            // AI 每步思考的时间预算（毫秒）。
+            s.AddInt("aiTimeMs", "AI 思考上限", 500, 200, 3000, 100);
+            s.Load();
+            XqSettings.store = s;
+        }
+        return XqSettings.store;
+    }
+
+    // 启动时读一次配置。
+    public static void Ensure() { XqSettings.Store(); }
+
+    public static int AiDepth() { return XqSettings.Store().GetInt("aiDepth"); }
+
+    public static int AiTimeMs() { return XqSettings.Store().GetInt("aiTimeMs"); }
+
+    public static void SetAiDepth(int value) {
+        GameSettings s = XqSettings.Store();
+        s.SetInt("aiDepth", value);
+        s.Save();
+    }
+
+    public static void SetAiTimeMs(int value) {
+        GameSettings s = XqSettings.Store();
+        s.SetInt("aiTimeMs", value);
+        s.Save();
+    }
+
+    public static void ResetAll() {
+        GameSettings s = XqSettings.Store();
+        s.Reset();
+        s.Save();
+    }
+}
